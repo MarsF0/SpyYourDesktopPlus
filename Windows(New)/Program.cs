@@ -1,3 +1,4 @@
+// 新增程序运行时间显示功能
 // Program.cs - WinForms (.NET 8)
 // 合并更新：隐私模式（运行中可切换，不落盘）、GitHub 发布说明、原有限频/心跳/托盘/更新/日志逻辑保留
 
@@ -61,7 +62,7 @@ public sealed class MainForm : Form
     private Label lblHeader = null!, lblTopStatus = null!;
     private TextBox txtUrl = null!, txtMachineId = null!, txtKey = null!;
     private NumericUpDown numInterval = null!, numHeartbeat = null!;
-    private CheckBox chkShowKey = null!, chkAutoStart = null!, chkAllowBackground = null!, chkPrivacy = null!;
+    private CheckBox chkShowKey = null!, chkAutoStart = null!, chkAllowBackground = null!, chkPrivacy = null!, chkRunTime = null!;
     private Button btnStart = null!, btnStop = null!, btnOpenLog = null!;
     private Panel panelBtnBar = null!;
     private FlowLayoutPanel flpToggles = null!;
@@ -89,9 +90,14 @@ public sealed class MainForm : Form
     private DateTime _lastSent = DateTime.MinValue;
     private bool _busy = false;
 
+    // 移除应用运行时长跟踪字典，改为从系统获取
+
     // 隐私模式：默认 false，不落盘；运行中可改
     private bool _privacyMode = false;
     private bool _syncingPrivacy = false;
+    
+    // 运行时长功能：默认开启
+    private bool _runTimeEnabled = true;
 
     private const int MIN_HEARTBEAT_SEC = 10;
     private const string REG_RUN = @"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -217,11 +223,13 @@ public sealed class MainForm : Form
         chkShowKey = new CheckBox { AutoSize = true, Text = "显示密钥", Checked = true, Margin = new Padding(0, 0, 18, 0) };
         chkAutoStart = new CheckBox { AutoSize = true, Text = "开机自启动", Margin = new Padding(0, 0, 18, 0) };
         chkAllowBackground = new CheckBox { AutoSize = true, Text = "允许后台运行", Margin = new Padding(0, 0, 18, 0) };
+        chkRunTime = new CheckBox { AutoSize = true, Text = "显示运行时长", Checked = true, Margin = new Padding(0, 0, 18, 0) };
         chkPrivacy = new CheckBox { AutoSize = true, Text = "隐私模式（不采集标题/应用）" };
 
         flpToggles.Controls.Add(chkShowKey);
         flpToggles.Controls.Add(chkAutoStart);
         flpToggles.Controls.Add(chkAllowBackground);
+        flpToggles.Controls.Add(chkRunTime);
         flpToggles.Controls.Add(chkPrivacy);
 
         tlp.Controls.Add(new Label() { Width = 0, AutoSize = true }, 0, 3);
@@ -270,6 +278,14 @@ public sealed class MainForm : Form
     {
         chkShowKey.CheckedChanged += (_, __) => txtKey.UseSystemPasswordChar = !chkShowKey.Checked;
         chkAutoStart.CheckedChanged += (_, __) => TrySetAutoStart(chkAutoStart.Checked);
+        
+        // 运行时长功能切换
+        chkRunTime.CheckedChanged += async (_, __) =>
+        {
+            _runTimeEnabled = chkRunTime.Checked;
+            AppendLog(_runTimeEnabled ? "[run-time] ON" : "[run-time] OFF");
+            if (_timer.Enabled) await TickAsync(); // 即刻按新状态上报一次
+        };
 
         // 隐私模式切换：运行中也能改；立即上报一次
         chkPrivacy.CheckedChanged += async (_, __) =>
@@ -475,32 +491,90 @@ public sealed class MainForm : Form
             else
             {
                 var info = GetActiveWindowInfo();
-                title = San(info.title);
-                app = San(info.app);
+                // 提取应用名称（从进程名称或窗口标题中）
+                string appName = string.IsNullOrWhiteSpace(info.app) ? "未知应用" : info.app;
+                
+                if (_runTimeEnabled)
+                {
+                    // 计算运行时长（从系统获取进程启动时间）
+                    TimeSpan runTime;
+                    if (info.startTime.HasValue)
+                    {
+                        runTime = DateTime.Now - info.startTime.Value;
+                    }
+                    else
+                    {
+                        // 如果无法获取系统启动时间，使用当前时间作为参考
+                        runTime = TimeSpan.Zero;
+                    }
+                    
+                    // 格式化运行时长
+                    string runTimeString;
+                    if (runTime.TotalHours >= 1)
+                    {
+                        runTimeString = $"已运行{runTime.Hours}小时{runTime.Minutes}分钟{runTime.Seconds}秒";
+                    }
+                    else if (runTime.TotalMinutes >= 1)
+                    {
+                        runTimeString = $"已运行{runTime.Minutes}分钟{runTime.Seconds}秒";
+                    }
+                    else
+                    {
+                        runTimeString = $"已运行{runTime.Seconds}秒";
+                    }
+                    
+                    // 构建title格式：运行时长 - 应用名称
+                    title = $"{runTimeString} - {appName}";
+                }
+                else
+                {
+                    // 原项目逻辑：直接使用窗口标题
+                    title = info.title;
+                }
+                
+                // app字段设置为应用名称
+                app = appName;
                 pid = info.pid;
             }
 
             attemptedTitle = title;
             attemptedApp = app;
 
+            // 提取应用名称用于界面显示
+            string displayApp;
+            if (_privacyMode)
+            {
+                displayApp = "private mode";
+            }
+            else
+            {
+                var info = GetActiveWindowInfo();
+                displayApp = string.IsNullOrWhiteSpace(info.app) ? "未知应用" : info.app;
+            }
             bool changed = !string.Equals(title, _lastTitle, StringComparison.Ordinal);
             bool dueHeartbeat = DateTime.UtcNow - _lastSent >= CurrentHeartbeat();
 
+            // 总是更新界面，即使没有发送数据
+            lblLastTs.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            lblLastApp.Text = displayApp;
+
             if (!(changed || dueHeartbeat)) return;
 
+            // app字段设置为应用名称
+            string appForServer = string.IsNullOrWhiteSpace(app) ? "未知应用" : app;
+            // 记录发送的数据，用于调试
+            AppendLog($"[debug] Sending data: machine={txtMachineId.Text.Trim()}, app={appForServer}, title={title}");
             await SendAsync(new UploadEvent
             {
                 machine = txtMachineId.Text.Trim(),
                 window_title = title,
-                app = app,
-                raw = new RawInfo { exe = app, pid = pid, reason = changed ? "change" : "heartbeat" }
+                app = appForServer,
+                raw = new RawInfo { exe = displayApp, pid = pid, reason = changed ? "change" : "heartbeat" }
             });
 
-            _lastTitle = title; _lastApp = app; _lastSent = DateTime.UtcNow;
+            _lastTitle = title; _lastApp = displayApp; _lastSent = DateTime.UtcNow;
 
-            lblLastTs.Text = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            lblLastApp.Text = $"{app} - {title}";
-            AppendLog($"[sent {(changed ? "change" : "heartbeat")}] {lblLastTs.Text} | {lblLastApp.Text}");
+            AppendLog($"[sent {(changed ? "change" : "heartbeat")}] {lblLastTs.Text} | {displayApp}");
         }
         catch (IngestErrorException ie)
         {
@@ -536,27 +610,161 @@ public sealed class MainForm : Form
         finally { _busy = false; }
     }
 
-    private (string title, string app, int pid) GetActiveWindowInfo()
+    private (string title, string app, int pid, DateTime? startTime) GetActiveWindowInfo()
     {
         try
         {
             var h = GetForegroundWindow();
-            if (h == IntPtr.Zero) return ("", "", 0);
+            if (h == IntPtr.Zero) return ("", "", 0, null);
 
             var sb = new StringBuilder(1024);
             GetWindowText(h, sb, sb.Capacity);
+            string windowTitle = sb.ToString();
 
             GetWindowThreadProcessId(h, out var pid);
             string procName = "";
+            DateTime? startTime = null;
             try
             {
                 using var p = Process.GetProcessById((int)pid);
                 procName = Path.GetFileNameWithoutExtension(p.MainModule?.FileName ?? p.ProcessName);
+                startTime = p.StartTime;
             }
             catch { }
-            return (sb.ToString(), procName, (int)pid);
+
+            // 智能提取应用名称
+            string appName = procName;
+            
+            // 如果进程名称可用，使用它
+            if (!string.IsNullOrWhiteSpace(appName))
+            {
+                // 尝试将进程名称转换为更友好的格式
+                appName = GetFriendlyAppName(appName);
+            }
+            // 如果进程名称为空或需要从窗口标题中获取更准确的名称
+            else if (!string.IsNullOrWhiteSpace(windowTitle))
+            {
+                // 智能从窗口标题中提取应用名称
+                appName = ExtractAppNameFromTitle(windowTitle);
+            }
+            else
+            {
+                appName = "未知应用";
+            }
+
+            return (windowTitle, appName, (int)pid, startTime);
         }
-        catch { return ("", "", 0); }
+        catch { return ("", "", 0, null); }
+    }
+
+    // 将进程名称转换为更友好的格式
+    private string GetFriendlyAppName(string procName)
+    {
+        // 常见进程名称映射
+        Dictionary<string, string> appNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "chrome", "Google Chrome" },
+            { "sinmai", "不给看喵" },
+            { "Qq", "QQ" },
+            { "Weixin", "微信" },
+            { "msedge", "Microsoft Edge" },
+            { "firefox", "Mozilla Firefox" },
+            { "iexplore", "Internet Explorer" },
+            { "notepad", "Notepad" },
+            { "notepad++", "Notepad++" },
+            { "calc", "Calculator" },
+            { "cmd", "Command Prompt" },
+            { "powershell", "PowerShell" },
+            { "explorer", "File Explorer" },
+            { "devenv", "Visual Studio" },
+            { "code", "Visual Studio Code" },
+            { "steam", "Steam" },
+            { "cs2", "Counter-Strike 2" },
+            { "csgo", "Counter-Strike: Global Offensive" },
+            { "gta5", "Grand Theft Auto V" },
+            { "fortnite", "Fortnite" },
+            { "overwatch", "Overwatch" },
+            { "valorant", "Valorant" },
+            { "leagueoflegends", "League of Legends" },
+            { "worldofwarcraft", "World of Warcraft" },
+            { "minecraft", "Minecraft" },
+            { "discord", "Discord" },
+            { "spotify", "Spotify" },
+            { "vlc", "VLC Media Player" },
+            { "photoshop", "Adobe Photoshop" },
+            { "illustrator", "Adobe Illustrator" },
+            { "word", "Microsoft Word" },
+            { "excel", "Microsoft Excel" },
+            { "powerpoint", "Microsoft PowerPoint" },
+            { "outlook", "Microsoft Outlook" }
+        };
+
+        // 检查是否有映射
+        if (appNameMap.TryGetValue(procName, out string friendlyName))
+        {
+            return friendlyName;
+        }
+
+        // 对于没有映射的进程名称，尝试美化
+        // 移除常见的后缀
+        string cleanName = procName;
+        cleanName = Regex.Replace(cleanName, @"(_+)$", ""); // 移除像_app_1这样的后缀
+        cleanName = Regex.Replace(cleanName, @"(exe)$", "", RegexOptions.IgnoreCase); // 移除.exe后缀
+
+        // 将驼峰命名转换为空格分隔
+        cleanName = Regex.Replace(cleanName, @"([a-z0-9])([A-Z])", "$1 $2");
+        // 将下划线转换为空格
+        cleanName = cleanName.Replace("_", " ");
+        // 首字母大写
+        cleanName = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cleanName.ToLower());
+
+        return cleanName;
+    }
+
+    // 从窗口标题中智能提取应用名称
+    private string ExtractAppNameFromTitle(string windowTitle)
+    {
+        // 常见应用窗口标题格式处理
+        // 1. 格式: "文档名称 - 应用名称"
+        // 2. 格式: "应用名称 - 文档名称"
+        // 3. 格式: "应用名称"
+
+        // 尝试识别常见的分隔符
+        string[] separators = { " - ", " – ", "—", "|" };
+        string appName = windowTitle.Trim();
+
+        foreach (string separator in separators)
+        {
+            if (appName.Contains(separator))
+            {
+                var parts = appName.Split(new[] { separator }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    // 尝试识别哪一部分是应用名称
+                    // 通常应用名称会包含常见的应用关键词
+                    string[] commonAppKeywords = { "Chrome", "Edge", "Firefox", "Notepad", "Word", "Excel", "PowerPoint", "Visual Studio", "Code", "Steam", "Discord", "Spotify" };
+                    
+                    // 检查每个部分是否包含常见应用关键词
+                    foreach (string part in parts)
+                    {
+                        string trimmedPart = part.Trim();
+                        foreach (string keyword in commonAppKeywords)
+                        {
+                            if (trimmedPart.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return trimmedPart;
+                            }
+                        }
+                    }
+                    
+                    // 如果没有识别出常见应用，尝试使用最后一部分（通常是应用名称）
+                    return parts[parts.Length - 1].Trim();
+                }
+            }
+        }
+
+        // 如果没有分隔符，直接返回窗口标题
+        return appName;
     }
 
     private async Task SendAsync(UploadEvent payload)
