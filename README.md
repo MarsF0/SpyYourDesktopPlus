@@ -17,6 +17,7 @@
 单人单密钥在`name-keys.json`改
 # Windows侧视奸教程（NEW）<br>
 下载Release里面的exe文件即可（没有运行环境的话去下.net 8.0）<br>
+PLUS版新增功能：显示应用运行时长<br>
 # Windows侧视奸教程（OLD）（不推荐）<br>
 ~~你不会连Nodejs都不会安装吧<br>同样在解压目录下运行cmd(不知道这句话什么意思问AI)，执行`npm i`，安装依赖后`npm start`，然后修改SERVER_URL=到你要上报的地址加端口（两边的PORT保持一致），基本就没问题了<br>Win+R，输入shell:startup，把Windows文件夹下的start-seeme.bat丢进去就可以开机自启<br>~~
 # iOS侧视奸教程<br>
