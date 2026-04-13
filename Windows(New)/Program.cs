@@ -1,3 +1,4 @@
+// 当标题超过150字符时，使用更短的格式
 // 新增程序运行时间显示功能
 // Program.cs - WinForms (.NET 8)
 // 合并更新：隐私模式（运行中可切换，不落盘）、GitHub 发布说明、原有限频/心跳/托盘/更新/日志逻辑保留
@@ -562,12 +563,34 @@ public sealed class MainForm : Form
 
             // app字段设置为应用名称
             string appForServer = string.IsNullOrWhiteSpace(app) ? "未知应用" : app;
+            string titleForServer = title;
+            
+            // 检查标题长度，如果过长，使用更短的格式
+            if (title.Length > 150)
+            {
+                if (_runTimeEnabled)
+                {
+                    // 如果启用了运行时长，只使用运行时长部分
+                    int dashIndex = title.IndexOf(" - ");
+                    if (dashIndex > 0)
+                    {
+                        titleForServer = title.Substring(0, dashIndex);
+                    }
+                }
+                else
+                {
+                    // 如果没有启用运行时长，使用应用名称作为标题
+                    titleForServer = appForServer;
+                }
+                AppendLog($"[title-too-long] truncated title from {title.Length} to {titleForServer.Length} characters");
+            }
+            
             // 记录发送的数据，用于调试
-            AppendLog($"[debug] Sending data: machine={txtMachineId.Text.Trim()}, app={appForServer}, title={title}");
+            AppendLog($"[debug] Sending data: machine={txtMachineId.Text.Trim()}, app={appForServer}, title={titleForServer}");
             await SendAsync(new UploadEvent
             {
                 machine = txtMachineId.Text.Trim(),
-                window_title = title,
+                window_title = titleForServer,
                 app = appForServer,
                 raw = new RawInfo { exe = displayApp, pid = pid, reason = changed ? "change" : "heartbeat" }
             });
@@ -596,6 +619,9 @@ public sealed class MainForm : Form
                     AppendLog($"[title-too-long] submitted app='{attemptedApp ?? "-"}' | title='{attemptedTitle ?? "-"}' (limit={limitNum?.ToString() ?? "?"}, length={titleLen?.ToString() ?? "?"})");
                 else
                     AppendLog($"[title-too-long] submitted app='{attemptedApp ?? "-"}' | title='{attemptedTitle ?? "-"}'");
+                
+                // 窗口标题过长时，不停止监控，继续运行
+                return;
             }
 
             Stop();
