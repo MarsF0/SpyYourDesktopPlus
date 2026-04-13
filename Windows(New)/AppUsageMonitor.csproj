@@ -7,13 +7,13 @@
     <Nullable>enable</Nullable>
 
     <!-- 可执行名 / 任务管理器元数据（按需修改） -->
-    <AssemblyName>SpyYourDesktop</AssemblyName>
-    <Company>澜轶小卖部</Company>
-    <Product>SpyYourDesktop</Product>
-    <AssemblyTitle>SpyYourDesktop</AssemblyTitle>
-    <Description>SpyYourDesktop Windows Client</Description>
-    <Version>1.1.6</Version>
-    <FileVersion>1.1.6.0</FileVersion>
+    <AssemblyName>SpyYourDesktopPlus</AssemblyName>
+    <Company>澜轶小卖部＆Mars</Company>
+    <Product>SpyYourDesktopPlus</Product>
+    <AssemblyTitle>SpyYourDesktopPlus</AssemblyTitle>
+    <Description>SpyYourDesktopPlus Windows Client</Description>
+    <Version>0.0.2</Version>
+    <FileVersion>0.0.2.0</FileVersion>
 
     <!-- 单文件、自包含、x64 -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -21,11 +21,8 @@
     <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <!-- EXE 图标（把 ico 放到 Assets\App.ico） -->
-    <ApplicationIcon>Assets\App.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="Assets\App.ico" />
   </ItemGroup>
 </Project>
