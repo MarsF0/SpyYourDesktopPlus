@@ -690,7 +690,6 @@ public sealed class MainForm : Form
         Dictionary<string, string> appNameMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
             { "chrome", "Google Chrome" },
-            { "sinmai", "不给看喵" },
             { "Qq", "QQ" },
             { "Weixin", "微信" },
             { "msedge", "Microsoft Edge" },
